@@ -173,7 +173,7 @@ for year_idx, year in enumerate(years):
                 index_events      = np.empty([92,92]) * np.nan # It considers all the DSLs in one year
                 index_event = [ structtype() for i in range(92) ]
                 array  = pr_y[:,ii,jj]
-                pr_int[year_idx,ii,jj] = np.nanmean(array[array>0]) 
+                pr_int[year_idx,ii,jj] = np.nanmean(array[array>1]) 
                 thresh = 1
                 Count = -1
                 i = 0
