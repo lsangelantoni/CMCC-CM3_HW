@@ -18,8 +18,6 @@ from scipy.stats import ks_2samp as ks_2samp
 import datetime as date
 import cftime
 import dask
-import os
-import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import xesmf as xe
 import os
@@ -34,9 +32,14 @@ from dask import delayed, compute
 import regionmask 
 import sys
 import glob
-# input variables are defined in the shell script run_make_hw*.sh
-# In this way you can run in parallel several models
 
+# Call files with tasmax and hfls statistics for definning HWMId and evaporative deficit. It is already compliant to the considered spatial domain.  
+root_clima_stats='/work/cmcc/ls21622/tmp_hw_metrics'
+ds_stats=xr.open_dataset(f'{root_clima_stats}/CMCC-CM3-LT_clima_stats.nc') 
+# - - - - - - - - - - - - - - - - -
+
+
+# From sell :                      
 y=                int(sys.argv[1])
 
 lon_min=          int(sys.argv[2])
@@ -51,20 +54,25 @@ hfls_dir=         str(sys.argv[8])
 cam_lsm_dir=      str(sys.argv[9])
 models=           str(sys.argv[10])
 f_out=            str(sys.argv[11])
+# - - - - - - - - - - - - - - - - -
+
+
 
 # Set and load land-sea mask 
 cam_lsm=xr.open_dataset(f'{cam_lsm_dir}/SST_CMCC-CM3-LT.cam.sst_pcmdi_amip.cntl.1m.1990.nc')
 mask = cam_lsm.SST[0,:,:]!=0
+# - - - - - - - - - - - - - - - - -
 
-# # # process tasmax 
-# # # historical
+
+# # # Process tasmax 
+# historical
 if y <= 2014 : 
     ds = xr.open_dataset(f'{tasmax_dir}/tasmax_CMCC-CM3_BlueAdapt_HISTORICAL_day_{y}0101-{y}1231.nc',engine="netcdf4")
     ds = ds.sel(time=ds.time.dt.month.isin(range(6, 9)))
     ds_tasmax = ds.drop_dims('bnds')
     
 
-### ssp585
+# ssp585
 def process_file(file_path, var_name, y, resample=False):
     ds = xr.open_dataset(file_path)
        
@@ -80,16 +88,16 @@ if y > 2014 :
     ds_tasmax_2 = xr.concat(tasmax_datasets_2, dim='time')
     ds_tasmax_2=ds_tasmax_2.sortby(ds_tasmax_2.time).drop_dims('bnds')
     ds_tasmax = ds_tasmax_2
-
+# - - - - - - - - - - - - - - - - -
 
 # # # hfls 
-# # # historical
+# historical
 if y <= 2014 : 
     ds = xr.open_dataset(f'{hfls_dir}/hfls_CMCC-CM3_BlueAdapt_HISTORICAL_day_{y}0101-{y}1231.nc',engine="netcdf4")
     ds = ds.sel(time=ds.time.dt.month.isin(range(6, 9)))
     ds_hfls = ds.drop_dims('bnds')
 
-### ssp585
+# ssp585
 def process_file(file_path, var_name, y, resample=False):
     ds = xr.open_dataset(file_path)
        
@@ -105,17 +113,16 @@ if y > 2014 :
     ds_hfls_2 = xr.concat(hfls_datasets_2, dim='time')
     ds_hfls_2=ds_tasmax_2.sortby(ds_hfls_2.time).drop_dims('bnds')
     ds_hfls = ds_hfls_2
+# - - - - - - - - - - - - - - - - -
 
 
-# In[5]:
+# Call for tasmax p90:
 ds_p90 = xr.open_dataset(f'{p90_dir}/tasmax_CMCC-CM3_BlueAdapt_HISTORICAL_day_1974-1994.nc')
 ds_p90 = ds_p90.sel(time=ds_p90['time'].dt.month.isin([6, 7, 8]))
+# - - - - - - - - - - - - - - - - -
 
 
-
-
-# In[7]:
-#change lon coord to -180,180
+# Change lon coord to -180,180
 if ds_tasmax.lon.min() >= 0:
     with xr.set_options(keep_attrs=True):
         ds_tasmax['lon'] = ((ds_tasmax.lon + 180) % 360) - 180
@@ -126,29 +133,29 @@ if ds_tasmax.lon.min() >= 0:
         ds_p90 = ds_p90.sortby(ds_p90.lon)
         mask['lon'] = ((mask.lon + 180) % 360) - 180
         mask = mask.sortby(mask.lon)
+# - - - - - - - - - - - - - - - - -
 
 
-# In[8]:
+# Crop domain
 ds_tasmax = ds_tasmax.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max))
 ds_hfls = ds_hfls.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max))
 ds_p90 = ds_p90.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max))
 mask = mask.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max)).T
-
-tasmax_clima_p25 = xr.DataArray(np.percentile(ds_tasmax.sel(time=ds_tasmax.time.dt.year.isin(range(1975,1979))).tasmax,25,axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-tasmax_clima_iqr = xr.DataArray(scipy.stats.iqr(ds_tasmax.sel(time=ds_tasmax.time.dt.year.isin(range(1975,1979))).tasmax,rng=(25,75),axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-hfls_clima_p75 = xr.DataArray(np.percentile(ds_hfls.sel(time=ds_hfls.time.dt.year.isin(range(1975,1979))).hfls,75,axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-hfls_clima_iqr = xr.DataArray(scipy.stats.iqr(ds_hfls.sel(time=ds_hfls.time.dt.year.isin(range(1975,1979))).hfls,rng=(25,75),axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
+# - - - - - - - - - - - - - - - - -
 
 
+
+# inputs for HW detection function
 nlat,nlon = np.shape(ds_tasmax.tasmax)[1], np.shape(ds_tasmax.tasmax)[2]
 np_tasmax = np.array(ds_tasmax.tasmax.where(mask == 0, np.nan))
 np_hfls = np.array(ds_hfls.hfls.where(mask == 0, np.nan))
 np_90p = np.array(ds_p90.tasmax.where(mask == 0, np.nan))
-np_p25 = np.array(tasmax_clima_p25.where(mask == 0, np.nan))
-np_iqr_tasmax = np.array(tasmax_clima_iqr.where(mask == 0, np.nan))
-np_p75 = np.array(hfls_clima_p75.where(mask == 0, np.nan))
-np_iqr_hfls = np.array(hfls_clima_iqr.where(mask == 0, np.nan))
 
+np_p25 = np.array(ds_stats.tasmax_clima_p25.where(mask == 0, np.nan))
+np_iqr_tasmax = np.array(ds_stats.tasmax_clima_iqr.where(mask == 0, np.nan))
+np_p75 = np.array(ds_stats.hfls_clima_p75.where(mask == 0, np.nan))
+np_iqr_hfls = np.array(ds_stats.hfls_clima_iqr.where(mask == 0, np.nan))
+# - - - - - - - - - - - - - - - - -
 
 
 # Function to compute metrics for a single grid point
@@ -225,9 +232,11 @@ for ii in range(ds_tasmax.dims['lat']):
             # Place the results into the correct grid point
             final_results[:, ii, jj] = results[valid_index]
             valid_index += 1
+# - - - - - - - - - - - - - - - - -
 
-# At this point, final_results contains the HW metrics on the lat-lon grid, preserving NaNs
 
+
+# Final_results contains the HW metrics on the lat-lon grid, preserving NaNs
 hw_metrics = xr.DataArray(
     final_results,
     dims=["metric", "lat", "lon"],
@@ -238,7 +247,10 @@ hw_metrics = xr.DataArray(
     },
     name="heatwave_metrics"
 )
+# - - - - - - - - - - - - - - - - -
 
+
+# Save NetCDF
 def save_hw_metrics_to_netcdf(
     f_out, 
     lat, 
@@ -312,30 +324,10 @@ save_hw_metrics_to_netcdf(
     hw_metrics[6].values, 
     model_name=models
 )
-
-"""
-m=1
-fig, axs = plt.subplots(ncols=1,nrows=1,
-                        subplot_kw={'projection': ccrs.PlateCarree()})
-
-P1=axs.pcolormesh(ds_tasmax.lon,ds_tasmax.lat,hw_metrics[m,:,:] ,transform=ccrs.PlateCarree())
-axs.add_feature(cfeature.COASTLINE.with_scale('50m'), edgecolor='black')
-axs.add_feature(cfeature.BORDERS.with_scale('50m'))
-#axs.set_extent([-10,30,20,50])
-axs.set_title(f'{models} HW {metrics[m]} - {y}' )
-gl = axs.gridlines(crs=ccrs.PlateCarree(), draw_labels=True, linewidth=1,
-                       color='gray', alpha=0.5, linestyle='--')
-gl.top_labels = False
-gl.right_labels = False      
-
-cb = fig.colorbar(P1, ax=(axs), orientation='vertical',label='°C',aspect=15,shrink=.75,pad=.015)
-
-plt.savefig(f'plot_{models}_heatwave_metrics_day_{metrics[m]}-{y}.png')
-"""
+# - - - - - - - - - - - - - - - - -
 
 
-
-# In[12] make some tests:
+# Make some plots 
 ds=xr.open_dataset(f'{f_out}')
 
 fig, axs = plt.subplots(ncols=2,nrows=3,subplot_kw={'projection': ccrs.PlateCarree()},figsize=(16, 8))
@@ -375,3 +367,5 @@ for ax in axs.flatten()  :
     gl.right_labels = False      
     
 plt.savefig(f'plot_{models}_heatwave_metrics_day_{y}.png')
+# - - - - - - - - - - - - - - - - -
+
