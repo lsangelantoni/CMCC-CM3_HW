@@ -34,8 +34,14 @@ from dask import delayed, compute
 import regionmask 
 import glob
 
+# Call files with tasmax and hfls statistics for definning HWMId and evaporative deficit. It is already compliant to the considered spatial domain.  
+root_clima_stats='/work/cmcc/ls21622/tmp_hw_metrics'
+ds_stats=xr.open_dataset(f'{root_clima_stats}/ERA5-land_clima_stats.nc') 
+# - - - - - - - - - - - - - - - - -
 
-# ### ERA5 land
+
+                         
+# From shell
 y=                int(sys.argv[1])
 
 lon_min=          int(sys.argv[2])
@@ -49,6 +55,7 @@ hfls_dir=         str(sys.argv[8])
 
 models=           str(sys.argv[9])
 f_out=            str(sys.argv[10])
+# - - - - - - - - - - - - - - - - -
 
 
 # Function to process all the loaded files in
@@ -80,23 +87,16 @@ tasmax_datasets = [process_file(f, 'tasmax', y) for f in tasmax_files]
 # Concatenate tasmax datasets along the time dimension
 ds_tasmax = xr.concat(tasmax_datasets, dim='time')
 ds_tasmax=ds_tasmax.sortby(ds_tasmax.time)
+# - - - - - - - - - - - - - - - - -
 
 
 # Process hfls files
 hfls_files = []
 hfls_files.extend(glob.glob(f'{hfls_dir}/*_{y}_0[6-8].nc'))
 hfls_datasets = [process_file(f, 'hfls', y,resample=True) for f in hfls_files]
-
 # Concatenate hfls datasets along the time dimension
 ds_hfls = xr.concat(hfls_datasets, dim='time')
 ds_hfls = ds_hfls.sortby(ds_hfls.time)
-
-
-ds_p90 = xr.open_dataset(f'/data/cmcc/ls21622/ERA5/ERA5_land/tmax/p90/tasmax_ERA5-land_day_1975-1994.nc').rename({'valid_time':'time','longitude':'lon','latitude':'lat'})
-ds_p90 = ds_p90.sortby(ds_p90.lat)
-ds_p90 = ds_p90.sel(time=ds_p90['time'].dt.month.isin([6, 7, 8]))
-ds_p90 = ds_p90.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max))
-
 
 print('REGRIDDING MOD TO OBS')
 method = 'bilinear'
@@ -107,26 +107,32 @@ def regrid(ds,ds_out,method):
 
 ds_hfls_regrid = regrid(ds_hfls,ds_tasmax,method)
 ds_hfls = ds_hfls_regrid
+# - - - - - - - - - - - - - - - - -
+
+# Call for tasmax p90:
+ds_p90 = xr.open_dataset(f'/data/cmcc/ls21622/ERA5/ERA5_land/tmax/p90/tasmax_ERA5-land_day_1975-1994.nc').rename({'valid_time':'time','longitude':'lon','latitude':'lat'})
+ds_p90 = ds_p90.sortby(ds_p90.lat)
+ds_p90 = ds_p90.sel(time=ds_p90['time'].dt.month.isin([6, 7, 8]))
+ds_p90 = ds_p90.sel(lat=slice(lat_min, lat_max), lon=slice(lon_min, lon_max))
+# - - - - - - - - - - - - - - - - -
 
 
-tasmax_clima_p25 = xr.DataArray(np.percentile(ds_tasmax.sel(time=ds_tasmax.time.dt.year.isin(range(1975,1979))).tasmax,25,axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-tasmax_clima_iqr = xr.DataArray(scipy.stats.iqr(ds_tasmax.sel(time=ds_tasmax.time.dt.year.isin(range(1975,1979))).tasmax,rng=(25,75),axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-hfls_clima_p75 = xr.DataArray(np.percentile(ds_hfls.sel(time=ds_hfls.time.dt.year.isin(range(1975,1979))).hfls,75,axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
-hfls_clima_iqr = xr.DataArray(scipy.stats.iqr(ds_hfls.sel(time=ds_hfls.time.dt.year.isin(range(1975,1979))).hfls,rng=(25,75),axis=0)).rename({'dim_0':'lat','dim_1':'lon'})
 
+# inputs for HW detection function
 ds_tasmax = ds_tasmax.chunk({"time": -1, "lat": 10, "lon": 10}).persist()
 ds_hfls = ds_hfls.chunk({"time": -1, "lat": 10, "lon": 10}).persist()
 ds_p90 = ds_p90.chunk({"lat": 10, "lon": 10}).persist()
 
 
-nlat, nlon = np.shape(ds_tasmax.tasmax)[1], np.shape(ds_tasmax.tasmax)[2]
+nlat,nlon = np.shape(ds_tasmax.tasmax)[1], np.shape(ds_tasmax.tasmax)[2]
 np_tasmax = np.array(ds_tasmax.tasmax)
 np_hfls = np.array(ds_hfls.hfls)
 np_90p = np.array(ds_p90.tasmax)
-np_p25 = np.array(tasmax_clima_p25)
-np_iqr_tasmax = np.array(tasmax_clima_iqr)
-np_p75 = np.array(hfls_clima_p75)
-np_iqr_hfls = np.array(hfls_clima_iqr)
+np_p25 = np.array(ds_stats.tasmax_clima_p25)
+np_iqr_tasmax = np.array(ds_stats.tasmax_clima_iqr)
+np_p75 = np.array(ds_stats.hfls_clima_p75)
+np_iqr_hfls = np.array(ds_stats.hfls_clima_iqr)
+# - - - - - - - - - - - - - - - - -
 
 
 # Function to compute metrics for a single grid point
@@ -216,8 +222,9 @@ hw_metrics = xr.DataArray(
     },
     name="heatwave_metrics"
 )
+# - - - - - - - - - - - - - - - - -
 
-
+# Save NetCDF
 def save_hw_metrics_to_netcdf(
     f_out, 
     lat, 
@@ -291,8 +298,10 @@ save_hw_metrics_to_netcdf(
     hw_metrics[6].values, 
     model_name="ERA5-land"
 )
+# - - - - - - - - - - - - - - - - -
 
 
+# Make some plots
 ds=xr.open_dataset(f'{f_out}')
 
 fig, axs = plt.subplots(ncols=1,nrows=1,
@@ -309,3 +318,4 @@ gl.right_labels = False
 
 cb = fig.colorbar(P1, ax=(axs), orientation='vertical',label='°C',aspect=15,shrink=.75,pad=.015)
 plt.savefig('test_hws.png')
+# - - - - - - - - - - - - - - - - -
