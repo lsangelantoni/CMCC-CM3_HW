@@ -39,7 +39,7 @@ ds_stats=xr.open_dataset(f'{root_clima_stats}/CMCC-CM3-LT_clima_stats.nc')
 # - - - - - - - - - - - - - - - - -
 
 
-# From sell :                      
+# From shell :                      
 y=                int(sys.argv[1])
 
 lon_min=          int(sys.argv[2])
